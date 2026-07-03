@@ -320,6 +320,124 @@ describe("package file apply bump (snapshot)", () => {
       ]);
     });
 
+    it("bumps multi with pnpm catalog deps", function* () {
+      const log = yield* logTest.useCapturedLogger();
+      const jsonFolder = f.copy("pkg.js-pnpm-catalog");
+
+      const commands = [
+        {
+          dependencies: ["js-catalog-pkg-b", "js-catalog-pkg-c"],
+          manager: "javascript",
+          path: "./packages/pkg-a/",
+          pkg: "js-catalog-pkg-a",
+          type: "minor",
+          parents: {},
+        },
+        {
+          dependencies: undefined,
+          manager: "javascript",
+          path: "./packages/pkg-b/",
+          pkg: "js-catalog-pkg-b",
+          type: "minor",
+          parents: {},
+        },
+        {
+          dependencies: undefined,
+          manager: "javascript",
+          path: "./packages/pkg-c/",
+          pkg: "js-catalog-pkg-c",
+          type: "minor",
+          parents: {},
+        },
+      ];
+
+      const config = {
+        ...configDefaults,
+        packages: {
+          "js-catalog-pkg-a": {
+            path: "./packages/pkg-a/",
+            manager: "javascript",
+            dependencies: ["js-catalog-pkg-b", "js-catalog-pkg-c"],
+          },
+          "js-catalog-pkg-b": {
+            path: "./packages/pkg-b/",
+            manager: "javascript",
+          },
+          "js-catalog-pkg-c": {
+            path: "./packages/pkg-c/",
+            manager: "javascript",
+          },
+        },
+      };
+
+      const allPackages = yield* readAllPkgFiles({ config, cwd: jsonFolder });
+
+      yield* apply({
+        logger: logger.operations,
+        //@ts-expect-error
+        commands,
+        config,
+        allPackages,
+        cwd: jsonFolder,
+      });
+
+      // a `catalog:` reference points at a range kept in pnpm-workspace.yaml
+      // and is rewritten by pnpm at publish time, so the declaration itself
+      // must survive a cascade bump byte-for-byte
+      const modifiedPkgAFile = yield* loadFile(
+        "packages/pkg-a/package.json",
+        jsonFolder,
+      );
+      expect(modifiedPkgAFile.content).toBe(
+        "{\n" +
+          '  "name": "js-catalog-pkg-a",\n' +
+          '  "version": "1.1.0",\n' +
+          '  "dependencies": {\n' +
+          '    "react": "catalog:",\n' +
+          '    "js-catalog-pkg-b": "catalog:"\n' +
+          "  },\n" +
+          '  "devDependencies": {\n' +
+          '    "js-catalog-pkg-c": "catalog:tools"\n' +
+          "  }\n" +
+          "}\n",
+      );
+
+      // the catalog tables themselves track the bumped versions: range
+      // prefixes are kept, partial pins stay partial, and entries for
+      // packages outside the workspace (react) are left untouched
+      const modifiedWorkspaceFile = yield* loadFile(
+        "pnpm-workspace.yaml",
+        jsonFolder,
+      );
+      expect(modifiedWorkspaceFile.content).toBe(
+        "packages:\n" +
+          '  - "packages/*"\n' +
+          "\n" +
+          "# internal packages pinned here\n" +
+          "catalog:\n" +
+          "  react: ^18.2.0\n" +
+          "  js-catalog-pkg-b: ^1.1.0\n" +
+          "\n" +
+          "catalogs:\n" +
+          "  tools:\n" +
+          '    js-catalog-pkg-c: "1.1"\n',
+      );
+
+      yield* logTest.consecutive(log.all, [
+        { msg: "bumping js-catalog-pkg-a with minor", level: "info" },
+        { msg: "bumping js-catalog-pkg-b with minor", level: "info" },
+        { msg: "bumping js-catalog-pkg-c with minor", level: "info" },
+        {
+          msg: "bumping js-catalog-pkg-b in pnpm-workspace.yaml catalog to ^1.1.0",
+          level: "info",
+        },
+        {
+          msg: "bumping js-catalog-pkg-c in pnpm-workspace.yaml catalogs.tools to 1.1",
+          level: "info",
+        },
+      ]);
+    });
+
     it("bumps multi with parent as range", function* () {
       const log = yield* logTest.useCapturedLogger();
         const jsonFolder = f.copy("pkg.js-yarn-workspace");
