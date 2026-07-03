@@ -672,6 +672,141 @@ describe("package file apply bump (snapshot)", () => {
       ]);
     });
 
+    it("bumps multi with workspace root dependency requirements", function* () {
+      const log = yield* logTest.useCapturedLogger();
+      const rustFolder = f.copy("pkg.rust-workspace-root-deps");
+
+      const commands = [
+        {
+          dependencies: [
+            "rust_root_pkg_b_fixture",
+            "rust_root_pkg_c_fixture",
+            "rust_root_pkg_d_fixture",
+          ],
+          manager: "rust",
+          path: "./pkg-a/",
+          pkg: "rust_root_pkg_a_fixture",
+          type: "minor",
+          parents: {},
+        },
+        {
+          dependencies: undefined,
+          manager: "rust",
+          path: "./pkg-b/",
+          pkg: "rust_root_pkg_b_fixture",
+          type: "minor",
+          parents: {},
+        },
+        {
+          dependencies: undefined,
+          manager: "rust",
+          path: "./pkg-c/",
+          pkg: "rust_root_pkg_c_fixture",
+          type: "minor",
+          parents: {},
+        },
+        {
+          dependencies: undefined,
+          manager: "rust",
+          path: "./pkg-d/",
+          pkg: "rust_root_pkg_d_fixture",
+          type: "minor",
+          parents: {},
+        },
+      ];
+
+      const config = {
+        ...configDefaults,
+        packages: {
+          rust_root_pkg_a_fixture: {
+            path: "./pkg-a/",
+            manager: "rust",
+          },
+          rust_root_pkg_b_fixture: {
+            path: "./pkg-b/",
+            manager: "rust",
+          },
+          rust_root_pkg_c_fixture: {
+            path: "./pkg-c/",
+            manager: "rust",
+          },
+          rust_root_pkg_d_fixture: {
+            path: "./pkg-d/",
+            manager: "rust",
+          },
+        },
+      };
+
+      const allPackages = yield* readAllPkgFiles({ config, cwd: rustFolder });
+
+      yield* apply({
+        logger: logger.operations,
+        //@ts-expect-error
+        commands,
+        config,
+        allPackages,
+        cwd: rustFolder,
+      });
+
+      // requirements for member crates in the root [workspace.dependencies]
+      // table track the bumped versions: partial pins stay partial, range
+      // prefixes are kept, and path-only or `*` entries are left untouched
+      const modifiedRootFile = yield* loadFile("Cargo.toml", rustFolder);
+      expect(modifiedRootFile.content).toBe(
+        "[workspace]\n" +
+          'members = ["pkg-a", "pkg-b", "pkg-c", "pkg-d"]\n' +
+          "\n" +
+          "[workspace.dependencies]\n" +
+          'serde = "1.0"\n' +
+          'rust_root_pkg_a_fixture = { version = "0.6", path = "pkg-a", default-features = false }\n' +
+          'rust_root_pkg_b_fixture = "^0.9.0"\n' +
+          'rust_root_pkg_c_fixture = { path = "pkg-c", version = "*" }\n' +
+          'rust_root_pkg_d_fixture = { path = "pkg-d" }\n',
+      );
+
+      const modifiedAPKGFile = yield* loadFile("pkg-a/Cargo.toml", rustFolder);
+      expect(modifiedAPKGFile.content).toBe(
+        "[package]\n" +
+          'name = "rust_root_pkg_a_fixture"\n' +
+          'version = "0.6.0"\n' +
+          "\n" +
+          "[dependencies]\n" +
+          "serde = { workspace = true }\n" +
+          "rust_root_pkg_b_fixture = { workspace = true }\n" +
+          "rust_root_pkg_c_fixture = { workspace = true }\n" +
+          "\n" +
+          "[dev-dependencies]\n" +
+          "rust_root_pkg_d_fixture = { workspace = true }\n",
+      );
+
+      yield* logTest.consecutive(log.all, [
+        {
+          msg: "bumping rust_root_pkg_a_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_b_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_c_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_d_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_a_fixture in Cargo.toml [workspace.dependencies] to 0.6",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_b_fixture in Cargo.toml [workspace.dependencies] to ^0.9.0",
+          level: "info",
+        },
+      ]);
+    });
+
     it("bumps multi with object dep", function* () {
       const log = yield* logTest.useCapturedLogger();
         const rustFolder = f.copy("pkg.rust-multi-object-dep");

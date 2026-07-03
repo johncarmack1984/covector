@@ -1,6 +1,8 @@
 import { type Operation } from "effection";
 import {
   writePkgFile,
+  saveFile,
+  readCargoWorkspaceRoots,
   getPackageFileVersion,
   setPackageFileVersion,
   testSerializePkgFile,
@@ -54,13 +56,19 @@ export function* apply({
   });
 
   if (bump) {
-    yield* writeAll({
-      bumps: bumps.reduce(
-        (final: PackageFile[], current) =>
-          !current.file ? final : final.concat([current]),
-        [],
-      ),
+    const bumpsToWrite = bumps.reduce(
+      (final: PackageFile[], current) =>
+        !current.file ? final : final.concat([current]),
+      [],
+    );
+    yield* writeAll({ bumps: bumpsToWrite, cwd });
+    yield* applyWorkspaceRootDepBumps({
+      logger,
+      bumps: bumpsToWrite,
+      allPackages,
       cwd,
+      previewVersion,
+      logs,
     });
   } else {
     for (const b of bumps) {
@@ -127,6 +135,84 @@ const writeAll = function* ({
     yield* writePkgFile({ packageFile: bump, cwd });
   }
 };
+
+// a cargo workspace's root manifest can declare version requirements for
+// member crates in its [workspace.dependencies] table; those requirements
+// live outside the member manifests, so bump them here to track each bumped
+// member's new version. entries without a version (path-only) and `*`
+// requirements float on the workspace and are left untouched
+function* applyWorkspaceRootDepBumps({
+  logger,
+  bumps,
+  allPackages,
+  cwd,
+  previewVersion = "",
+  logs = true,
+}: {
+  logger: Logger;
+  bumps: PackageFile[];
+  allPackages: Record<string, PackageFile>;
+  cwd: string;
+  previewVersion?: string;
+  logs?: boolean;
+}): Operation<void> {
+  const cargoBumps = bumps.filter(
+    (b) =>
+      !!b.name && b.file?.filename === "Cargo" && b.file?.extname === ".toml",
+  );
+  if (cargoBumps.length === 0) return;
+
+  // deriveVersionConsideringPartials reads the bumped version off the
+  // package file record
+  const packageFiles = { ...allPackages };
+  for (const b of cargoBumps) {
+    packageFiles[b.name!] = b;
+  }
+
+  const roots = yield* readCargoWorkspaceRoots({
+    memberManifestPaths: cargoBumps.map((b) => b.file!.path),
+    cwd,
+  });
+
+  for (const root of roots) {
+    let modified = false;
+    for (const b of cargoBumps) {
+      const depName = b.pkg.package?.name || b.pkg.name || b.name!;
+      const key = `workspace.dependencies.${depName}`;
+      if (!root.doc.has(key)) continue;
+      const entry = root.doc.get(key);
+      const prevVersion = typeof entry === "string" ? entry : entry?.version;
+      if (typeof prevVersion !== "string" || prevVersion === "") continue;
+      // `*` floats on whatever version the workspace holds
+      if (prevVersion === "*") continue;
+
+      const versionRequirementMatch = /[\^=~]/.exec(prevVersion);
+      const versionRequirement = versionRequirementMatch
+        ? versionRequirementMatch[0]
+        : "";
+      const version = deriveVersionConsideringPartials({
+        dependency: b.name!,
+        prevVersion,
+        versionRequirement,
+        previewVersion,
+        packageFiles,
+      });
+      // a partial pin such as `"2.11"` may already cover the bumped version
+      if (!version || version === prevVersion) continue;
+
+      root.doc.set(typeof entry === "string" ? key : `${key}.version`, version);
+      modified = true;
+      if (logs) {
+        yield* logger.info(
+          `bumping ${depName} in ${root.file.path} [workspace.dependencies] to ${version}`,
+        );
+      }
+    }
+    if (modified) {
+      yield* saveFile({ ...root.file, content: root.doc.toString() }, cwd);
+    }
+  }
+}
 
 function* bumpAll({
   logger,
