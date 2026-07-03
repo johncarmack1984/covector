@@ -831,6 +831,22 @@ describe("package file apply bump (snapshot)", () => {
           type: "minor",
           parents: {},
         },
+        {
+          dependencies: undefined,
+          manager: "rust",
+          path: "./pkg-e/",
+          pkg: "rust_root_pkg_e_fixture",
+          type: "minor",
+          parents: {},
+        },
+        {
+          dependencies: undefined,
+          manager: "rust",
+          path: "./pkg-f/",
+          pkg: "rust_root_pkg_f_fixture",
+          type: "minor",
+          parents: {},
+        },
       ];
 
       const config = {
@@ -852,6 +868,14 @@ describe("package file apply bump (snapshot)", () => {
             path: "./pkg-d/",
             manager: "rust",
           },
+          rust_root_pkg_e_fixture: {
+            path: "./pkg-e/",
+            manager: "rust",
+          },
+          rust_root_pkg_f_fixture: {
+            path: "./pkg-f/",
+            manager: "rust",
+          },
         },
       };
 
@@ -868,18 +892,21 @@ describe("package file apply bump (snapshot)", () => {
 
       // requirements for member crates in the root [workspace.dependencies]
       // table track the bumped versions: partial pins stay partial, range
-      // prefixes are kept, and path-only or `*` entries are left untouched
+      // prefixes are kept, and path-only, `*`, comparator-range, or wildcard
+      // entries are left untouched
       const modifiedRootFile = yield* loadFile("Cargo.toml", rustFolder);
       expect(modifiedRootFile.content).toBe(
         "[workspace]\n" +
-          'members = ["pkg-a", "pkg-b", "pkg-c", "pkg-d"]\n' +
+          'members = ["pkg-a", "pkg-b", "pkg-c", "pkg-d", "pkg-e", "pkg-f"]\n' +
           "\n" +
           "[workspace.dependencies]\n" +
           'serde = "1.0"\n' +
           'rust_root_pkg_a_fixture = { version = "0.6", path = "pkg-a", default-features = false }\n' +
           'rust_root_pkg_b_fixture = "^0.9.0"\n' +
           'rust_root_pkg_c_fixture = { path = "pkg-c", version = "*" }\n' +
-          'rust_root_pkg_d_fixture = { path = "pkg-d" }\n',
+          'rust_root_pkg_d_fixture = { path = "pkg-d" }\n' +
+          'rust_root_pkg_e_fixture = ">=0.2, <0.4"\n' +
+          'rust_root_pkg_f_fixture = "0.*"\n',
       );
 
       const modifiedAPKGFile = yield* loadFile("pkg-a/Cargo.toml", rustFolder);
@@ -912,6 +939,14 @@ describe("package file apply bump (snapshot)", () => {
         },
         {
           msg: "bumping rust_root_pkg_d_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_e_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_pkg_f_fixture with minor",
           level: "info",
         },
         {

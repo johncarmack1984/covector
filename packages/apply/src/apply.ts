@@ -185,6 +185,12 @@ function* applyWorkspaceRootDepBumps({
   }) => {
     // `*` floats on whatever version the workspace holds
     if (prevVersion === "*") return null;
+    // comparator/compound ranges (`>=1.2, <2`) and wildcard requirements
+    // (`1.*`, `1.x`) float by design and have no single-pin rewrite; leave
+    // them untouched rather than collapsing them to a pin (range bump
+    // policy is tracked in #184)
+    if (/[<>,| ]/.test(prevVersion) || /(^|\.)[xX*](\.|$)/.test(prevVersion))
+      return null;
     const versionRequirementMatch = /[\^=~]/.exec(prevVersion);
     const versionRequirement = versionRequirementMatch
       ? versionRequirementMatch[0]
