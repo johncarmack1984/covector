@@ -371,6 +371,10 @@ describe("package file apply bump (snapshot)", () => {
       };
 
       const allPackages = yield* readAllPkgFiles({ config, cwd: jsonFolder });
+      const originalWorkspaceFile = yield* loadFile(
+        "pnpm-workspace.yaml",
+        jsonFolder,
+      );
 
       yield* apply({
         logger: logger.operations,
@@ -404,24 +408,13 @@ describe("package file apply bump (snapshot)", () => {
 
       // the catalog tables are managed manually (pnpm does not document
       // catalog entries for workspace-internal packages), so the workspace
-      // manifest survives byte-for-byte
+      // manifest is never rewritten: it survives byte-for-byte as checked
+      // out, line endings included
       const modifiedWorkspaceFile = yield* loadFile(
         "pnpm-workspace.yaml",
         jsonFolder,
       );
-      expect(modifiedWorkspaceFile.content).toBe(
-        "packages:\n" +
-          '  - "packages/*"\n' +
-          "\n" +
-          "# internal packages pinned here\n" +
-          "catalog:\n" +
-          "  react: ^18.2.0\n" +
-          "  js-catalog-pkg-b: ^1.0.0\n" +
-          "\n" +
-          "catalogs:\n" +
-          "  tools:\n" +
-          '    js-catalog-pkg-c: "1.0"\n',
-      );
+      expect(modifiedWorkspaceFile.content).toBe(originalWorkspaceFile.content);
 
       yield* logTest.consecutive(log.all, [
         { msg: "bumping js-catalog-pkg-a with minor", level: "info" },
