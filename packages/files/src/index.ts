@@ -7,14 +7,7 @@ import { fromZodError } from "zod-validation-error";
 import { glob } from "tinyglobby";
 import path from "path";
 import { TomlDocument } from "@covector/toml";
-import {
-  parse,
-  parseDocument,
-  stringify,
-  isMap,
-  isScalar,
-  type Document,
-} from "yaml";
+import { parse, stringify } from "yaml";
 import semver from "semver";
 
 export * from "./schema.ts";
@@ -352,69 +345,6 @@ export function* readCargoWorkspaceRoots({
   }
   return Object.values(roots);
 }
-
-export type PnpmWorkspaceRoot = {
-  file: LoadedFile;
-  doc: Document;
-};
-
-// pnpm workspaces can pin dependency ranges centrally in the catalog tables
-// of pnpm-workspace.yaml; find the nearest ancestor pnpm-workspace.yaml
-// (pnpm's workspace resolution rule) for each member manifest so those
-// ranges can be kept in sync
-export function* readPnpmWorkspaceRoots({
-  memberManifestPaths,
-  cwd,
-}: {
-  memberManifestPaths: string[];
-  cwd: string;
-}): Operation<PnpmWorkspaceRoot[]> {
-  const roots: Record<string, PnpmWorkspaceRoot> = {};
-  for (const manifestPath of memberManifestPaths) {
-    let dir = path.posix.dirname(manifestPath);
-    while (true) {
-      const workspaceFilePath =
-        dir === "." ? "pnpm-workspace.yaml" : `${dir}/pnpm-workspace.yaml`;
-      if (roots[workspaceFilePath]) break;
-      try {
-        const file = yield* loadFile(workspaceFilePath, cwd);
-        roots[workspaceFilePath] = { file, doc: parseDocument(file.content) };
-        break;
-      } catch (error) {
-        // no workspace manifest at this level, keep walking up
-      }
-      if (dir === ".") break;
-      dir = path.posix.dirname(dir);
-    }
-  }
-  return Object.values(roots);
-}
-
-// the catalog tables in a pnpm workspace manifest that pin a range for `dep`:
-// the default `catalog:` table plus each named group under `catalogs:`
-export const getPnpmCatalogEntries = ({
-  root,
-  dep,
-}: {
-  root: PnpmWorkspaceRoot;
-  dep: string;
-}): { label: string; keyPath: string[]; version: string }[] => {
-  const entries: { label: string; keyPath: string[]; version: string }[] = [];
-  const consider = (keyPath: string[], label: string) => {
-    const version = root.doc.getIn(keyPath);
-    if (typeof version === "string" && version !== "")
-      entries.push({ label, keyPath, version });
-  };
-  consider(["catalog", dep], "catalog");
-  const groups = root.doc.get("catalogs");
-  if (isMap(groups)) {
-    for (const item of groups.items) {
-      const group = String(isScalar(item.key) ? item.key.value : item.key);
-      consider(["catalogs", group, dep], `catalogs.${group}`);
-    }
-  }
-  return entries;
-};
 
 export function* readPreFile({
   cwd,

@@ -402,9 +402,9 @@ describe("package file apply bump (snapshot)", () => {
           "}\n",
       );
 
-      // the catalog tables themselves track the bumped versions: range
-      // prefixes are kept, partial pins stay partial, and entries for
-      // packages outside the workspace (react) are left untouched
+      // the catalog tables are managed manually (pnpm does not document
+      // catalog entries for workspace-internal packages), so the workspace
+      // manifest survives byte-for-byte
       const modifiedWorkspaceFile = yield* loadFile(
         "pnpm-workspace.yaml",
         jsonFolder,
@@ -416,25 +416,17 @@ describe("package file apply bump (snapshot)", () => {
           "# internal packages pinned here\n" +
           "catalog:\n" +
           "  react: ^18.2.0\n" +
-          "  js-catalog-pkg-b: ^1.1.0\n" +
+          "  js-catalog-pkg-b: ^1.0.0\n" +
           "\n" +
           "catalogs:\n" +
           "  tools:\n" +
-          '    js-catalog-pkg-c: "1.1"\n',
+          '    js-catalog-pkg-c: "1.0"\n',
       );
 
       yield* logTest.consecutive(log.all, [
         { msg: "bumping js-catalog-pkg-a with minor", level: "info" },
         { msg: "bumping js-catalog-pkg-b with minor", level: "info" },
         { msg: "bumping js-catalog-pkg-c with minor", level: "info" },
-        {
-          msg: "bumping js-catalog-pkg-b in pnpm-workspace.yaml catalog to ^1.1.0",
-          level: "info",
-        },
-        {
-          msg: "bumping js-catalog-pkg-c in pnpm-workspace.yaml catalogs.tools to 1.1",
-          level: "info",
-        },
       ]);
     });
 

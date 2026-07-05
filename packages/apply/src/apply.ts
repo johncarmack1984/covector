@@ -3,8 +3,6 @@ import {
   writePkgFile,
   saveFile,
   readCargoWorkspaceRoots,
-  readPnpmWorkspaceRoots,
-  getPnpmCatalogEntries,
   getPackageFileVersion,
   setPackageFileVersion,
   testSerializePkgFile,
@@ -138,10 +136,9 @@ const writeAll = function* ({
   }
 };
 
-// workspace root manifests can declare version requirements for member
-// packages outside the members' own manifests: cargo's root
-// [workspace.dependencies] table and pnpm's catalog tables in
-// pnpm-workspace.yaml. bump those requirements here to track each bumped
+// a cargo workspace root manifest can declare version requirements for
+// member packages in its [workspace.dependencies] table, outside the
+// members' own manifests. bump those requirements here to track each bumped
 // member's new version. entries without a version (path-only) and `*`
 // requirements float on the workspace and are left untouched
 function* applyWorkspaceRootDepBumps({
@@ -163,16 +160,12 @@ function* applyWorkspaceRootDepBumps({
     (b) =>
       !!b.name && b.file?.filename === "Cargo" && b.file?.extname === ".toml",
   );
-  const jsBumps = bumps.filter(
-    (b) =>
-      !!b.name && b.file?.filename === "package" && b.file?.extname === ".json",
-  );
-  if (cargoBumps.length === 0 && jsBumps.length === 0) return;
+  if (cargoBumps.length === 0) return;
 
   // deriveVersionConsideringPartials reads the bumped version off the
   // package file record
   const packageFiles = { ...allPackages };
-  for (const b of [...cargoBumps, ...jsBumps]) {
+  for (const b of cargoBumps) {
     packageFiles[b.name!] = b;
   }
 
@@ -207,71 +200,34 @@ function* applyWorkspaceRootDepBumps({
     return version;
   };
 
-  if (cargoBumps.length > 0) {
-    const roots = yield* readCargoWorkspaceRoots({
-      memberManifestPaths: cargoBumps.map((b) => b.file!.path),
-      cwd,
-    });
+  const roots = yield* readCargoWorkspaceRoots({
+    memberManifestPaths: cargoBumps.map((b) => b.file!.path),
+    cwd,
+  });
 
-    for (const root of roots) {
-      let modified = false;
-      for (const b of cargoBumps) {
-        const depName = b.pkg.package?.name || b.pkg.name || b.name!;
-        const key = `workspace.dependencies.${depName}`;
-        if (!root.doc.has(key)) continue;
-        const entry = root.doc.get(key);
-        const prevVersion = typeof entry === "string" ? entry : entry?.version;
-        if (typeof prevVersion !== "string" || prevVersion === "") continue;
+  for (const root of roots) {
+    let modified = false;
+    for (const b of cargoBumps) {
+      const depName = b.pkg.package?.name || b.pkg.name || b.name!;
+      const key = `workspace.dependencies.${depName}`;
+      if (!root.doc.has(key)) continue;
+      const entry = root.doc.get(key);
+      const prevVersion = typeof entry === "string" ? entry : entry?.version;
+      if (typeof prevVersion !== "string" || prevVersion === "") continue;
 
-        const version = bumpRequirement({ prevVersion, dependency: b.name! });
-        if (!version) continue;
+      const version = bumpRequirement({ prevVersion, dependency: b.name! });
+      if (!version) continue;
 
-        root.doc.set(
-          typeof entry === "string" ? key : `${key}.version`,
-          version,
+      root.doc.set(typeof entry === "string" ? key : `${key}.version`, version);
+      modified = true;
+      if (logs) {
+        yield* logger.info(
+          `bumping ${depName} in ${root.file.path} [workspace.dependencies] to ${version}`,
         );
-        modified = true;
-        if (logs) {
-          yield* logger.info(
-            `bumping ${depName} in ${root.file.path} [workspace.dependencies] to ${version}`,
-          );
-        }
-      }
-      if (modified) {
-        yield* saveFile({ ...root.file, content: root.doc.toString() }, cwd);
       }
     }
-  }
-
-  if (jsBumps.length > 0) {
-    const roots = yield* readPnpmWorkspaceRoots({
-      memberManifestPaths: jsBumps.map((b) => b.file!.path),
-      cwd,
-    });
-
-    for (const root of roots) {
-      let modified = false;
-      for (const b of jsBumps) {
-        const depName = b.pkg.name || b.name!;
-        for (const entry of getPnpmCatalogEntries({ root, dep: depName })) {
-          const version = bumpRequirement({
-            prevVersion: entry.version,
-            dependency: b.name!,
-          });
-          if (!version) continue;
-
-          root.doc.setIn(entry.keyPath, version);
-          modified = true;
-          if (logs) {
-            yield* logger.info(
-              `bumping ${depName} in ${root.file.path} ${entry.label} to ${version}`,
-            );
-          }
-        }
-      }
-      if (modified) {
-        yield* saveFile({ ...root.file, content: root.doc.toString() }, cwd);
-      }
+    if (modified) {
+      yield* saveFile({ ...root.file, content: root.doc.toString() }, cwd);
     }
   }
 }
@@ -499,8 +455,7 @@ const getDepBumpVersion = ({
       const prevVersion = getPreviousVersion();
       // a pnpm catalog reference (`catalog:` or `catalog:groupname`) points at
       // a range kept in pnpm-workspace.yaml and is rewritten by pnpm at
-      // publish time, so there is no version in the declaration to bump; the
-      // catalog table itself is bumped alongside the workspace root manifests
+      // publish time, so there is no version in the declaration to bump
       if (prevVersion.startsWith("catalog:")) return null;
       // the pnpm/yarn workspace protocol pins `workspace:*` / `workspace:^` /
       // `workspace:~` deps to whatever version the workspace holds, and the
