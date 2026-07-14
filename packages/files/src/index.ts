@@ -339,8 +339,12 @@ export function* readCargoWorkspaceRoots({
       } catch (error) {
         // no manifest at this level, keep walking up
       }
-      if (dir === ".") break;
-      dir = path.posix.dirname(dir);
+      // `dirname` reaches a fixed point at the top of the walk (`.` for
+      // relative paths, `/` for absolute ones), so the loop terminates even
+      // for paths outside the cwd-relative shape loadFile produces
+      const parent = path.posix.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
     }
   }
   return Object.values(roots);

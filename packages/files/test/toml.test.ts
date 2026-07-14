@@ -8,6 +8,7 @@ import {
   setPackageFileVersion,
   getPackageFileVersion,
   writePkgFile,
+  readCargoWorkspaceRoots,
 } from "../src";
 
 const f = fixtures(__dirname);
@@ -171,6 +172,41 @@ describe("toml", () => {
         });
         expect(cargoFileModifiedPkgA.version).toBe("4.5.6");
       });
+    });
+  });
+
+  describe("cargo workspace roots", () => {
+    it("finds no root for a standalone crate", function* () {
+      const cargoFolder = f.copy("pkg.rust-single");
+
+      const roots = yield* readCargoWorkspaceRoots({
+        memberManifestPaths: ["Cargo.toml"],
+        cwd: cargoFolder,
+      });
+      expect(roots).toEqual([]);
+    });
+
+    it("finds no root for a nested crate without a workspace above it", function* () {
+      const cargoFolder = f.copy("pkg.rust-single-nested");
+
+      const roots = yield* readCargoWorkspaceRoots({
+        memberManifestPaths: ["crates/pkg-a/Cargo.toml"],
+        cwd: cargoFolder,
+      });
+      expect(roots).toEqual([]);
+    });
+
+    it("terminates on an absolute manifest path", function* () {
+      const cargoFolder = f.copy("pkg.rust-single");
+
+      // manifest paths are cwd-relative everywhere covector produces them;
+      // an absolute path is the worst case for the walk up the directory
+      // tree, which must still stop at the top rather than loop forever
+      const roots = yield* readCargoWorkspaceRoots({
+        memberManifestPaths: ["/outside/the/tree/Cargo.toml"],
+        cwd: cargoFolder,
+      });
+      expect(roots).toEqual([]);
     });
   });
 });
