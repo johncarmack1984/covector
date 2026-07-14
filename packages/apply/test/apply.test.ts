@@ -945,6 +945,82 @@ describe("package file apply bump (snapshot)", () => {
       ]);
     });
 
+    it("bumps workspace root dependency requirements with an inherited version", function* () {
+      const log = yield* logTest.useCapturedLogger();
+      const rustFolder = f.copy("pkg.rust-workspace-root-deps-inherited");
+
+      const commands = [
+        {
+          dependencies: undefined,
+          manager: "rust",
+          path: "./",
+          pkg: "rust_root_inherited_fixture",
+          type: "minor",
+          parents: {},
+        },
+      ];
+
+      const config = {
+        ...configDefaults,
+        packages: {
+          rust_root_inherited_fixture: {
+            path: "./",
+            manager: "rust",
+          },
+        },
+      };
+
+      // the member manifests inherit their version from the workspace root
+      // (`version.workspace = true`) and are never rewritten, so they keep
+      // their checked-out bytes; compare them against their original content
+      const originalAPKGFile = yield* loadFile("pkg-a/Cargo.toml", rustFolder);
+      const originalBPKGFile = yield* loadFile("pkg-b/Cargo.toml", rustFolder);
+
+      const allPackages = yield* readAllPkgFiles({ config, cwd: rustFolder });
+
+      yield* apply({
+        logger: logger.operations,
+        //@ts-expect-error
+        commands,
+        config,
+        allPackages,
+        cwd: rustFolder,
+      });
+
+      // the package's version lives at [workspace.package] in the root
+      // manifest, so the root carries both the bumped version and the bumped
+      // [workspace.dependencies] requirement, while the entry without a
+      // version (path and features only) is left untouched
+      const modifiedRootFile = yield* loadFile("Cargo.toml", rustFolder);
+      expect(modifiedRootFile.content).toBe(
+        "[workspace]\n" +
+          'members = ["pkg-a", "pkg-b"]\n' +
+          "\n" +
+          "[workspace.package]\n" +
+          'version = "1.3.0"\n' +
+          "\n" +
+          "[workspace.dependencies]\n" +
+          'rust_root_inherited_fixture = { version = "1.3", path = "pkg-a" }\n' +
+          'rust_root_inherited_helper_fixture = { path = "pkg-b", default-features = false }\n',
+      );
+
+      const modifiedAPKGFile = yield* loadFile("pkg-a/Cargo.toml", rustFolder);
+      expect(modifiedAPKGFile.content).toBe(originalAPKGFile.content);
+      const modifiedBPKGFile = yield* loadFile("pkg-b/Cargo.toml", rustFolder);
+      expect(modifiedBPKGFile.content).toBe(originalBPKGFile.content);
+
+      yield* logTest.consecutive(log.all, [
+        {
+          msg: "bumping rust_root_inherited_fixture with minor",
+          level: "info",
+        },
+        {
+          msg: "bumping rust_root_inherited_fixture in Cargo.toml [workspace.dependencies] to 1.3",
+          level: "info",
+        },
+      ]);
+    });
+
     it("bumps multi with object dep", function* () {
       const log = yield* logTest.useCapturedLogger();
         const rustFolder = f.copy("pkg.rust-multi-object-dep");

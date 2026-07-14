@@ -385,6 +385,13 @@ export const getPackageFileVersion = ({
           return pkg.pkg.version;
         } else if (pkg.file.extname === ".toml" && pkg?.pkg?.package?.version) {
           return pkg.pkg.package.version;
+        } else if (
+          pkg.file.extname === ".toml" &&
+          pkg?.pkg?.workspace?.package?.version
+        ) {
+          // a workspace root manifest can hold the version its members
+          // inherit at [workspace.package], mirroring setPackageFileVersion
+          return pkg.pkg.workspace.package.version;
         } else if (!pkg.pkg.version) {
           return "";
         } else {
